@@ -79,6 +79,15 @@ def connected(gg):
         idx = idx[idx_o.argsort()]
     return conn
 
+def cut_partitions(A,Y):
+    if not torch.is_tensor(A):
+        A = torch.from_numpy(A.toarray()).float().to(device)
+    p_tst = test_partition(Y)
+    partitions = []
+    for i in range(Y.shape[1]):
+        partitions.append(A[p_tst==i][:,p_tst==i])
+    return partitions
+
 def cuts(A, Y):
     partitions = test_partition(Y)
     cut = torch.zeros(Y.shape[1]).to(device)
@@ -172,7 +181,7 @@ def save_all(A_arr, transformer, name):
     torch.save((adj, Ad, As, x), name)
     return adj, Ad, As, x
 
-def Train_rotate(model_r, x, A, optimizer_r, rotate=True, max_epochs = 100):
+def Train_rotate(model_r, x, A, optimizer_r, bal=False, rotate=True, max_epochs = 100):
     '''
     Training Specifications
     '''
@@ -192,14 +201,18 @@ def Train_rotate(model_r, x, A, optimizer_r, rotate=True, max_epochs = 100):
     for epoch in range(max_epochs):        
         Y = model_r(x, adj[epoch%N])
         loss = CutLoss.apply(Y,A[epoch%N])
-        # loss = custom_loss(Y, A)
+        if bal:
+            f_loss = loss + l_balance
+        else:
+            f_loss = loss
+        
         if epoch % 20 == 0:
             #plt_graph(A_g[epoch%N])
-            print('Epoch {}:   Loss = {}'.format(epoch, loss.item()))
+            print('Epoch {}:   Loss = {}'.format(epoch, f_loss.item()))
         if loss < min_loss:
-            min_loss = loss.item()
+            min_loss = f_loss.item()
             torch.save(model_r.state_dict(), "./data/trial_weights_r.pt")
-        loss.backward()
+        f_loss.backward()
         optimizer_r.step()
         
 def Train_random(model_r, x, A, optimizer_r, prob_gen=0.1, prob_A=0.1, initial=0.1, max_epochs = 100):
@@ -283,7 +296,7 @@ def Test_rotate(model, x, A, *argv, rotate=True, plot=False, s=None):
         Y.append(Y1)
     return Y
 
-def Train_arr(model, x, adj, As, optimizer, max_epochs = 100, file_s=None, overwrite=False, min_loss=100):
+def Train_arr(model, x, adj, As, optimizer, bal=False, max_epochs = 100, file_s=None, overwrite=False, min_loss=100):
     '''
     Training Specifications
     '''
@@ -307,7 +320,10 @@ def Train_arr(model, x, adj, As, optimizer, max_epochs = 100, file_s=None, overw
         loss = CutLoss.apply(Y,As[epoch%L])
         l_balance = BalanceLoss(Y)
         # l_balance -> "balances" by guessing equally for all partition
-        f_loss = loss# + l_balance
+        if bal:
+            f_loss = loss + l_balance
+        else:
+            f_loss = loss
         
         loss_train[epoch%L] = f_loss
         avg_loss = loss_train.mean() * max(L/(epoch+1),1)
@@ -367,7 +383,7 @@ def BalanceLoss(Y): # just the normal balance makes the model guess all partitio
 
 
 # not mine, but here due to hierarchy
-def Train(model, x, adj, A, optimizer, max_epochs = 100):
+def Train(model, x, adj, A, optimizer, bal=False, max_epochs = 100):
     '''
     Training Specifications
     '''
@@ -380,7 +396,10 @@ def Train(model, x, adj, A, optimizer, max_epochs = 100):
         #loss = NCut(A, Y)
         # loss = custom_loss(Y, A)
         l_balance = BalanceLoss(Y)
-        f_loss = loss# + l_balance
+        if bal:
+            f_loss = loss + l_balance
+        else:
+            f_loss = loss
         if epoch % 20 == 0:
             print('Epoch {}:   Loss = NCut {} , Bal {}'.format(epoch, loss.item(), l_balance.item()))
         if f_loss < min_loss:
